@@ -1,0 +1,97 @@
+{
+  "name": "ScoutBot",
+  "nodes": [
+    {
+      "id": "telegram-trigger",
+      "name": "Telegram Trigger",
+      "type": "n8n-nodes-base.telegramTrigger",
+      "typeVersion": 1,
+      "position": [0, 0],
+      "parameters": { "updates": ["message"] },
+      "credentials": {
+        "telegramApi": {
+          "id"  : "YOUR_TELEGRAM_CREDENTIAL_ID",
+          "name": "Telegram account"
+        }
+      }
+    },
+    {
+      "id": "parse-input",
+      "name": "Parse Input",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [200, 0],
+      "parameters": {
+        "jsCode": "const text = $json.message.text.toLowerCase();\nconst filters = {};\n\nif (text.includes(\"cb\")) filters.position = \"CB\";\nif (text.includes(\"st\")) filters.position = \"ST\";\nif (text.includes(\"pace\")) filters.pace = text.match(/pace\\s*(>=|>|=)?\\s*(\\d+)/)?.[0];\nif (text.includes(\"finishing\")) filters.finishing = text.match(/finishing\\s*(>=|>|=)?\\s*(\\d+)/)?.[0];\n\nreturn [{ json: filters }];"
+      }
+    },
+    {
+      "id": "get-data",
+      "name": "Get Player Data",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.6,
+      "position": [400, 0],
+      "parameters": {
+        "documentId": "YOUR_SHEET_ID",
+        "sheetName": "Data Baru",
+        "filtersUI": {"values": []}
+      },
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id"  : "YOUR_GOOGLE_SHEETS_CREDENTIAL_ID",
+          "name": "Google Sheets account"
+        }
+      }
+    },
+    {
+      "id": "filter-data",
+      "name": "Filter Players",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [600, 0],
+      "parameters": {
+        "jsCode": "const filters = $input.item.json;\n\nfunction parseCondition(condition) {\n  if (typeof condition !== 'string') return null;\n  const match = condition.match(/(>=|<=|>|<|=)?\\s*(\\d+)/);\n  if (!match) return null;\n  return { operator: match[1] || '=', value: parseFloat(match[2]) };\n}\n\nfunction evaluate(operator, playerValue, conditionValue) {\n  playerValue = parseFloat(playerValue);\n  switch (operator) {\n    case '>': return playerValue > conditionValue;\n    case '>=': return playerValue >= conditionValue;\n    case '<': return playerValue < conditionValue;\n    case '<=': return playerValue <= conditionValue;\n    case '=': return playerValue === conditionValue;\n    default: return false;\n  }\n}\n\nreturn items.filter(item => {\n  const player = item.json;\n  const pos = (player[\"Position Asli\"] || \"\").toLowerCase();\n  if (filters.position && !pos.includes(filters.position.toLowerCase())) return false;\n\n  for (const key of Object.keys(filters)) {\n    if (key === 'position') continue;\n    const playerValue = player[key.charAt(0).toUpperCase() + key.slice(1)];\n    const parsed = parseCondition(filters[key]);\n    if (!parsed || !evaluate(parsed.operator, playerValue, parsed.value)) return false;\n  }\n\n  return true;\n}).slice(0, 1);"
+      }
+    },
+    {
+      "id": "ai-agent",
+      "name": "AI Agent",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 2,
+      "position": [800, 0],
+      "parameters": {
+        "promptType": "define",
+        "text": "Kamu adalah AI scouting assistant untuk klub sepakbola. Tugasmu adalah membaca data pemain dan menyusun laporan scouting dalam format JSON seperti ini:\n\n{\n  \"name\": \"Ronaldo Nazário\",\n  \"club\": \"Real Madrid\",\n  \"primary_position\": \"ST\",\n  \"overall_rating\": 92,\n  \"potential\": 94,\n  \"dribbling\": 91,\n  \"short_passing\": 82,\n  \"shot_power\": 95,\n  \"pace\": 93,\n  \"crossing\": 75,\n  \"finishing\": 96,\n  \"ball_control\": 90,\n  \"balance\": 88,\n  \"aggression\": 85,\n  \"interceptions\": 40,\n  \"vision\": 84,\n  \"sliding_tackle\": 38,\n  \"acceleration\": 94,\n  \"sprint_speed\": 92,\n  \"age\": 28,\n  \"preferred_foot\": \"Right\",\n  \"height\": 183,\n  \"weight\": 78,\n  \"contract_until\": \"2026-06-30\",\n  \"wage\": 250000,\n  \"market_value\": 65000000,\n  \"gk_handling\": 15,\n  \"gk_positioning\": 14,\n  \"gk_reflexes\": 13,\n  \"traits\": \"Speed Dribbler, Clinical Finisher, Flair\"\n}",
+        "hasOutputParser": true,
+        "options": {
+          "systemMessage": "Hari ini adalah tanggal {{ $now.format('yyyy-MM-dd') }}.\nKamu adalah AI scouting assistant untuk klub sepakbola. Jangan berhalusinasi. Gunakan data yang tersedia.",
+          "passthroughBinaryImages": true
+        }
+      }
+    },
+    {
+      "id": "output-parser",
+      "name": "Structured Output Parser",
+      "type": "@n8n/n8n-nodes-langchain.outputParserStructured",
+      "typeVersion": 1.3,
+      "position": [1000, 0],
+      "parameters": {
+        "jsonSchemaExample": "{\n  \"name\": \"Ronaldo Nazário\",\n  \"club\": \"Real Madrid\",\n  \"primary_position\": \"ST\",\n  \"overall_rating\": 92,\n  \"potential\": 94,\n  \"dribbling\": 91,\n  \"short_passing\": 82,\n  \"shot_power\": 95,\n  \"pace\": 93,\n  \"crossing\": 75,\n  \"finishing\": 96,\n  \"ball_control\": 90,\n  \"balance\": 88,\n  \"aggression\": 85,\n  \"interceptions\": 40,\n  \"vision\": 84,\n  \"sliding_tackle\": 38,\n  \"acceleration\": 94,\n  \"sprint_speed\": 92,\n  \"age\": 28,\n  \"preferred_foot\": \"Right\",\n  \"height\": 183,\n  \"weight\": 78,\n  \"contract_until\": \"2026-06-30\",\n  \"wage\": 250000,\n  \"market_value\": 65000000,\n  \"gk_handling\": 15,\n  \"gk_positioning\": 14,\n  \"gk_reflexes\": 13,\n  \"traits\": \"Speed Dribbler, Clinical Finisher, Flair\"\n}"
+      }
+    },
+    {
+      "id": "send-message",
+      "name": "Send to Telegram",
+      "type": "n8n-nodes-base.telegram",
+      "typeVersion": 1,
+      "position": [1200, 0],
+      "parameters": {
+        "chatId": "={{ $json.message.chat.id }}",
+        "text": "=👤 Name: {{ $json.output.name }}\n🏟️ Club: {{ $json.output.club }}\n🎯 Position: {{ $json.output.primary_position }}\n⚽ Overall: {{ $json.output.overall_rating }}\n🖊 Potential: {{ $json.output.potential }}\n📊 Pace: {{ $json.output.pace }}\n🎯 Finishing: {{ $json.output.finishing }}\n📅 Age: {{ $json.output.age }}\n💰 Market Value: {{ $json.output.market_value }}\n📝 Contract Until: {{ $json.output.contract_until }}\n🧠 Traits: {{ $json.output.traits }}"
+      },
+      "credentials": {
+        "telegramApi": {"id": "YOUR_TELEGRAM_CREDENTIAL_ID", "": null}
+      }
+    }
+  ]
+}
